@@ -1,0 +1,52 @@
+import requests
+from bs4 import BeautifulSoup
+import concurrent.futures
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
+class FourChanScraper:
+    def __init__(self):
+        self.counts = defaultdict(int)
+
+    def scrape_page(self, url):
+        try:
+            response = requests.get(url)
+            soup = BeautifulSoup(response.text, 'lxml')
+            board = url.split('/')[3]
+            for thread in soup.select('div.thread'):
+                for post in thread.select('div.post'):
+                    post_lower = post.text.lower()
+                    if 'Keyword_1' in post_lower:
+                        self.counts[board] += 1
+
+        except Exception as e:
+            print(f"Error scraping {url}: {e}")
+
+    def run(self):
+        # Set up a ThreadPoolExecutor with 8 worker threads
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            # Generate URLs using a generator expression
+            url_template = 'https://boards.4chan.org/{}/{}'
+            boards = ['a', 'g', 'm', 'cgl', 'w', 'v', 'vg', 'vr', 'co', 'diy', 'fa', 'fit', 'int', 'jp', 'lit', 'mu', 'n', 'po', 'pol', 'r9k', 'sci', 'soc', 'sp', 't', 'tv', 'u', 'x']
+            page_numbers = range(1, 11)
+            urls = (url_template.format(board, page_number) for board in boards for page_number in page_numbers)
+
+            # Submit scraping tasks for each URL
+            futures = [executor.submit(self.scrape_page, url) for url in urls]
+            # Wait for all tasks to complete
+            concurrent.futures.wait(futures)
+
+        # After all threads have finished, create a bar graph of the counts:
+        plt.bar(self.counts.keys(), self.counts.values())
+        plt.xlabel('Board')
+        plt.ylabel('Count')
+        plt.xticks(rotation=90)
+        plt.title('Popularity of "Keyword_1" on different 4chan boards')
+        plt.tight_layout()
+        plt.savefig("output.png")
+
+
+if __name__ == "__main__":
+    scraper = FourChanScraper()
+    scraper.run()
+
