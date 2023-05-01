@@ -1,0 +1,84 @@
+import os
+import requests
+import re
+import random
+from bs4 import BeautifulSoup
+import concurrent.futures
+from itertools import cycle
+
+class FourChanScraper:
+    def __init__(self, keywords):
+        self.keywords = {word.lower() for word in keywords}
+        self.session = requests.Session()
+        self.proxies = []
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
+            # Add more user-agents if desired
+        ]
+
+    def get_proxies(self):
+        regex = r"[0-9]+(?:\.[0-9]+){3}:[0-9]+"
+        c = requests.get("https://spys.me/proxy.txt")
+        test_str = c.text
+        a = re.finditer(regex, test_str, re.MULTILINE)
+        for match in a:
+            self.proxies.append("http://" + match.group())
+
+        c = requests.get("https://free-proxy-list.net/")
+        soup = BeautifulSoup(c.content, 'html.parser')
+        z = soup.find('textarea').get_text()
+        x = re.findall(regex, z)
+        for proxy in x:
+            self.proxies.append("http://" + proxy)
+
+    def download_image(self, img_url, path, proxy):
+        try:
+            img_data = self.session.request('GET', img_url, proxies={'http': proxy}, timeout=10, headers={'User-Agent': random.choice(self.user_agents)}).content
+            with open(path, 'wb') as handler:
+                handler.write(img_data)
+        except Exception as e:
+            print(f"Error downloading image {img_url}: {e}")
+
+    def scrape_page(self, url, proxy):
+        print(f"Scraping {url}")
+        try:
+            response = self.session.request('GET', url, proxies={'http': proxy}, timeout=10, headers={'User-Agent': random.choice(self.user_agents)})
+            soup = BeautifulSoup(response.text, 'lxml')
+            board = url.split('/')[3]
+            for thread in soup.select('div.thread'):
+                for post in thread.select('div.post'):
+                    post_lower = post.text.lower()
+                    if any(keyword in post_lower for keyword in self.keywords):
+                        post_id = post.get('id', '')[1:]
+                        thread_id = thread.get('id', '')[1:]
+                        images = post.find_all('a', class_='fileThumb')
+                        images = ['https:' + img['href'] for img in images]
+                        for i, img_url in enumerate(images):
+                            path = f'images/{board}/{board}_{thread_id}_{post_id}_{i}.jpg'
+                            self.download_image(img_url, path, proxy)
+        except Exception as e:
+            print(f"Error scraping {url}: {e}")
+
+    def run(self):
+        url_template = 'https://boards.4channel.org/{}/{}'
+        boards = ['x','sci','fit','lit']
+        page_numbers = range(1, 11)
+        urls = (url_template.format(board, page_number) for board in boards for page_number in page_numbers)
+
+        for board in boards:
+            os.makedirs(f'images/{board}', exist_ok=True)
+
+        self.get_proxies()
+        proxy_pool = cycle(self.proxies)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8)as executor:
+            futures = [executor.submit(self.scrape_page, url, next(proxy_pool)) for url in urls]
+            concurrent.futures.wait(futures)
+
+        print("Done!")
+
+if __name__ == "__main__":
+    keywords = ['i','e','o','u','a',' ']  # add your keywords here
+    scraper = FourChanScraper(keywords)
+    scraper.run()
+
